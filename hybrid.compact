@@ -95,7 +95,7 @@ export circuit distributeReward(rewardAmount: Uint<64>): [] {
         pad(32, "hybrid:reward:v1"),
         disclose(rewardAmount),
         nonce,
-        left(recipient)
+        left<ZswapCoinPublicKey, ContractAddress>(recipient)
     );
 
     totalRewarded.increment(1);

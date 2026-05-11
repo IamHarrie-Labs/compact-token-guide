@@ -65,7 +65,7 @@ export circuit mintToWallet(value: Uint<64>): [] {
         pad(32, "token:v1"),
         disclose(value),
         nonce,
-        left(recipient)
+        left<ZswapCoinPublicKey, ContractAddress>(recipient)
     );
 
     // coin is now committed in the Zswap Merkle tree for the recipient.
@@ -82,7 +82,7 @@ export circuit transferShielded(value: Uint<128>): [] {
 
     sendShielded(
         coin,
-        left(recipient),
+        left<ZswapCoinPublicKey, ContractAddress>(recipient),
         disclose(value)
     );
 }
