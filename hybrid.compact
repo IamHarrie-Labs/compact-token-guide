@@ -94,8 +94,8 @@ export circuit distributeReward(rewardAmount: Uint<64>): [] {
     mintShieldedToken(
         pad(32, "hybrid:reward:v1"),
         disclose(rewardAmount),
-        nonce,
-        left<ZswapCoinPublicKey, ContractAddress>(recipient)
+        disclose(nonce),
+        left<ZswapCoinPublicKey, ContractAddress>(disclose(recipient))
     );
 
     totalRewarded.increment(1);

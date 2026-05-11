@@ -61,11 +61,11 @@ export circuit mintToWallet(value: Uint<64>): [] {
     const recipient = getRecipient();
     const nonce = getMintNonce();
 
-    const coin = mintShieldedToken(
+    mintShieldedToken(
         pad(32, "token:v1"),
         disclose(value),
-        nonce,
-        left<ZswapCoinPublicKey, ContractAddress>(recipient)
+        disclose(nonce),
+        left<ZswapCoinPublicKey, ContractAddress>(disclose(recipient))
     );
 
     // coin is now committed in the Zswap Merkle tree for the recipient.
@@ -81,8 +81,8 @@ export circuit transferShielded(value: Uint<128>): [] {
     const recipient = getRecipient();
 
     sendShielded(
-        coin,
-        left<ZswapCoinPublicKey, ContractAddress>(recipient),
+        disclose(coin),
+        left<ZswapCoinPublicKey, ContractAddress>(disclose(recipient)),
         disclose(value)
     );
 }
