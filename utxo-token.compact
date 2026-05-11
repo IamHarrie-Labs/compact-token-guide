@@ -1,0 +1,102 @@
+// utxo-token.compact
+// Demonstrates UTXO-layer token operations using Compact's actual standard library.
+//
+// The standard library functions for shielded tokens are:
+//   mintShieldedToken(domainSep, value, nonce, recipient) → ShieldedCoinInfo
+//   sendShielded(input, recipient, value) → ShieldedSendResult
+//   receiveShielded(coin) → []
+//   ownPublicKey() → ZswapCoinPublicKey
+//
+// NOTE: The simplified API (mint(amount, recipient)) seen in community examples
+// does not reflect the actual standard library. These functions take complex
+// types (QualifiedShieldedCoinInfo, Either<ZswapCoinPublicKey, ContractAddress>)
+// provided as witnesses from the off-chain wallet SDK.
+
+pragma language_version >= 0.20;
+import CompactStandardLibrary;
+
+// ─── Policy state — actual token custody is in the Zswap Merkle tree ──────
+
+export ledger admin: Bytes<32>;
+export ledger totalMinted: Counter;
+
+// ─── Witnesses ─────────────────────────────────────────────────────────────
+
+witness getAdminSecret(): Bytes<32>;
+
+// Wallet provides a fresh nonce for each mint (prevents coin replay)
+witness getMintNonce(): Bytes<32>;
+
+// Wallet provides the recipient's shielded public key
+witness getRecipient(): ZswapCoinPublicKey;
+
+// Wallet provides a qualified coin (coin + Merkle tree index) to spend
+witness getQualifiedCoin(): QualifiedShieldedCoinInfo;
+
+// Wallet provides a shielded coin to receive into this contract
+witness getCoinToReceive(): ShieldedCoinInfo;
+
+// ─── Admin key derivation ──────────────────────────────────────────────────
+
+circuit adminKey(): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "utxo:admin:v1"),
+        getAdminSecret()
+    ]);
+}
+
+// ─── Circuits ──────────────────────────────────────────────────────────────
+
+export circuit initialize(adminPubkey: Bytes<32>): [] {
+    admin = disclose(adminPubkey);
+}
+
+// Mint shielded tokens directly to a recipient's wallet.
+// mintShieldedToken creates a coin in the Zswap Merkle tree.
+// The coin goes to the recipient — no receiveShielded needed.
+// Domain separator scopes these tokens to this contract.
+export circuit mintToWallet(value: Uint<64>): [] {
+    assert(disclose(adminKey()) == admin, "Only admin can mint");
+
+    const recipient = getRecipient();
+    const nonce = getMintNonce();
+
+    const coin = mintShieldedToken(
+        pad(32, "token:v1"),
+        disclose(value),
+        nonce,
+        left(recipient)
+    );
+
+    // coin is now committed in the Zswap Merkle tree for the recipient.
+    // We discard the local reference — the on-chain commitment is what matters.
+    totalMinted.increment(disclose(value));
+}
+
+// Transfer shielded tokens to a new recipient.
+// The caller's wallet provides the coin they own (with Merkle tree proof).
+// sendShielded handles double-spend prevention at the protocol level.
+export circuit transferShielded(value: Uint<128>): [] {
+    const coin = getQualifiedCoin();
+    const recipient = getRecipient();
+
+    sendShielded(
+        coin,
+        left(recipient),
+        disclose(value)
+    );
+}
+
+// Receive shielded tokens into this contract.
+// Called when someone sends tokens to the contract's address.
+// The off-chain wallet provides the ShieldedCoinInfo via witness.
+export circuit receiveIntoContract(): [] {
+    const coin = getCoinToReceive();
+    receiveShielded(coin);
+}
+
+// Get this contract's shielded public key.
+// Used off-chain as the recipient address when sending tokens to this contract.
+export circuit contractPublicKey(): ZswapCoinPublicKey {
+    return ownPublicKey();
+}

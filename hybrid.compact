@@ -1,0 +1,110 @@
+// hybrid.compact
+// Combines both models in a staking rewards contract:
+//   - Ledger-state accounting tracks participation (public, queryable)
+//   - UTXO tokens distribute real rewards (private, transferable)
+//
+// Internal staking amounts are bookkeeping — they don't need privacy.
+// Reward distributions are real tokens — they should be private.
+// Combining both gives you auditability for stakes + privacy for payouts.
+
+pragma language_version >= 0.20;
+import CompactStandardLibrary;
+
+// ─── Accounting state (public, queryable) ─────────────────────────────────
+
+export ledger admin: Bytes<32>;
+export ledger totalStaked: Counter;
+export ledger userStakes: Map<Bytes<32>, Uint<64>>;
+
+// ─── UTXO policy state (public aggregate only) ────────────────────────────
+
+export ledger totalRewarded: Counter;
+
+// ─── Witnesses ─────────────────────────────────────────────────────────────
+
+witness getAdminSecret(): Bytes<32>;
+witness getMintNonce(): Bytes<32>;
+witness getRecipient(): ZswapCoinPublicKey;
+
+// ─── Admin key derivation ──────────────────────────────────────────────────
+
+circuit adminKey(): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "hybrid:admin:v1"),
+        getAdminSecret()
+    ]);
+}
+
+// ─── Setup ─────────────────────────────────────────────────────────────────
+
+export circuit initialize(adminPubkey: Bytes<32>): [] {
+    admin = disclose(adminPubkey);
+}
+
+// ─── ACCOUNTING PATH: staking ──────────────────────────────────────────────
+
+// Record a stake for a user — internal bookkeeping, no real tokens.
+// newBalance is computed off-chain to avoid Uint<64> range widening.
+export circuit recordStake(
+    userKey: Bytes<32>,
+    amount: Uint<64>,
+    newBalance: Uint<64>
+): [] {
+    if (!userStakes.member(disclose(userKey))) {
+        assert(disclose(newBalance) == disclose(amount), "First stake: balance must equal amount");
+    } else {
+        const current = userStakes.lookup(disclose(userKey));
+        assert(disclose(newBalance) > current, "Balance must increase when staking");
+        // Safe subtraction: newBalance > current (verified above)
+        assert(disclose(newBalance) - current == disclose(amount), "Invalid stake amount");
+    }
+
+    userStakes.insert(disclose(userKey), disclose(newBalance));
+    totalStaked.increment(disclose(amount));
+}
+
+// Remove a stake — subtract from user's recorded balance.
+export circuit removeStake(
+    userKey: Bytes<32>,
+    amount: Uint<64>
+): [] {
+    assert(userStakes.member(disclose(userKey)), "No stake recorded");
+
+    const current = userStakes.lookup(disclose(userKey));
+    assert(current >= disclose(amount), "Cannot remove more than staked");
+
+    // Safe subtraction: current >= amount (verified above)
+    userStakes.insert(disclose(userKey), current - disclose(amount));
+    // Note: Counter has no decrement; totalStaked is a one-way aggregate
+}
+
+// ─── UTXO PATH: real token reward distribution ─────────────────────────────
+
+// Distribute shielded token rewards to a staker.
+// Uses mintShieldedToken — real, privacy-preserving, transferable tokens.
+// The reward amount and recipient are private (from witnesses).
+export circuit distributeReward(rewardAmount: Uint<64>): [] {
+    assert(disclose(adminKey()) == admin, "Only admin can distribute rewards");
+
+    const recipient = getRecipient();
+    const nonce = getMintNonce();
+
+    // Domain separator scopes these to this rewards program
+    // Changing the tag in a new deployment creates a different token type
+    mintShieldedToken(
+        pad(32, "hybrid:reward:v1"),
+        disclose(rewardAmount),
+        nonce,
+        left(recipient)
+    );
+
+    totalRewarded.increment(disclose(rewardAmount));
+}
+
+// Read a user's staking balance (public ledger query)
+export circuit stakeOf(userKey: Bytes<32>): Uint<64> {
+    if (!userStakes.member(disclose(userKey))) {
+        return 0;
+    }
+    return userStakes.lookup(disclose(userKey));
+}

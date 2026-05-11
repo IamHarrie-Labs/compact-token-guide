@@ -1,0 +1,85 @@
+// accounting.compact
+// Demonstrates ledger-state accounting using Counter and Map.
+// Use this model for internal bookkeeping — points, scores, credits —
+// when you don't need real token privacy or cross-wallet transfers.
+//
+// Key constraint: Map<K, Uint<64>> arithmetic produces wider range types.
+// Uint<64> + Uint<64> = Uint<1..2^65>, which cannot be stored back into
+// a Uint<64> field. The solution: pass the computed newBalance from
+// off-chain TypeScript and verify the relationship in-circuit.
+
+pragma language_version >= 0.20;
+import CompactStandardLibrary;
+
+// ─── Ledger state ─────────────────────────────────────────────────────────
+
+export ledger admin: Bytes<32>;
+export ledger totalPoints: Counter;
+export ledger userPoints: Map<Bytes<32>, Uint<64>>;
+
+// ─── Witnesses ─────────────────────────────────────────────────────────────
+
+witness getAdminSecret(): Bytes<32>;
+
+// ─── Admin key derivation ──────────────────────────────────────────────────
+
+circuit adminKey(): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "accounting:admin:v1"),
+        getAdminSecret()
+    ]);
+}
+
+// ─── Circuits ──────────────────────────────────────────────────────────────
+
+export circuit initialize(adminPubkey: Bytes<32>): [] {
+    admin = disclose(adminPubkey);
+}
+
+// Award points to a user.
+// newBalance is computed off-chain (current + amount) to avoid Uint<64>
+// arithmetic range widening in-circuit. The circuit verifies correctness.
+export circuit awardPoints(
+    userKey: Bytes<32>,
+    amount: Uint<64>,
+    newBalance: Uint<64>
+): [] {
+    assert(disclose(adminKey()) == admin, "Only admin can award points");
+
+    if (!userPoints.member(disclose(userKey))) {
+        // New user: first balance must exactly equal the awarded amount
+        assert(disclose(newBalance) == disclose(amount), "First award: balance must equal amount");
+    } else {
+        // Existing user: verify balance increase is exactly the awarded amount
+        const current = userPoints.lookup(disclose(userKey));
+        assert(disclose(newBalance) >= current, "Balance must not decrease");
+        // Safe subtraction: newBalance >= current (verified above)
+        assert(disclose(newBalance) - current == disclose(amount), "Invalid balance update");
+    }
+
+    userPoints.insert(disclose(userKey), disclose(newBalance));
+    totalPoints.increment(disclose(amount));
+}
+
+// Redeem points — subtract from a user's balance.
+// Subtraction is safe here: we assert current >= amount before computing.
+export circuit redeemPoints(
+    userKey: Bytes<32>,
+    amount: Uint<64>
+): [] {
+    assert(userPoints.member(disclose(userKey)), "User has no points");
+
+    const current = userPoints.lookup(disclose(userKey));
+    assert(current >= disclose(amount), "Insufficient points");
+
+    // Safe subtraction: current >= amount (verified above)
+    userPoints.insert(disclose(userKey), current - disclose(amount));
+}
+
+// Check a user's points balance (read-only)
+export circuit pointsOf(userKey: Bytes<32>): Uint<64> {
+    if (!userPoints.member(disclose(userKey))) {
+        return 0;
+    }
+    return userPoints.lookup(disclose(userKey));
+}
