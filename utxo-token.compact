@@ -92,7 +92,7 @@ export circuit transferShielded(value: Uint<128>): [] {
 // The off-chain wallet provides the ShieldedCoinInfo via witness.
 export circuit receiveIntoContract(): [] {
     const coin = getCoinToReceive();
-    receiveShielded(coin);
+    receiveShielded(disclose(coin));
 }
 
 // Get this contract's shielded public key.
