@@ -58,7 +58,7 @@ export circuit awardPoints(
     }
 
     userPoints.insert(disclose(userKey), disclose(newBalance));
-    totalPoints.increment(disclose(amount));
+    totalPoints.increment(1);
 }
 
 // Redeem points — subtract from a user's balance.

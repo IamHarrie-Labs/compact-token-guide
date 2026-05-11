@@ -60,7 +60,7 @@ export circuit recordStake(
     }
 
     userStakes.insert(disclose(userKey), disclose(newBalance));
-    totalStaked.increment(disclose(amount));
+    totalStaked.increment(1);
 }
 
 // Remove a stake — subtract from user's recorded balance.
@@ -98,7 +98,7 @@ export circuit distributeReward(rewardAmount: Uint<64>): [] {
         left(recipient)
     );
 
-    totalRewarded.increment(disclose(rewardAmount));
+    totalRewarded.increment(1);
 }
 
 // Read a user's staking balance (public ledger query)

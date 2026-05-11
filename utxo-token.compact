@@ -70,7 +70,7 @@ export circuit mintToWallet(value: Uint<64>): [] {
 
     // coin is now committed in the Zswap Merkle tree for the recipient.
     // We discard the local reference — the on-chain commitment is what matters.
-    totalMinted.increment(disclose(value));
+    totalMinted.increment(1);
 }
 
 // Transfer shielded tokens to a new recipient.
